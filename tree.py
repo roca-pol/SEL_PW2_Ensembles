@@ -43,7 +43,7 @@ def best_split(data: pd.DataFrame, attr, values, target):
         lscore, llabels = gini_index(l[target])
         rscore, rlabels = gini_index(r[target])
         score = (len(l) / n) * lscore + (len(r) / n) * rscore
-        split_scores.append((subset, score, l, r, llabels, rlabels))
+        split_scores.append((subset, score, llabels, rlabels))
 
     return min(split_scores, key=lambda x: x[1])
 
@@ -59,9 +59,9 @@ class DecisionTree:
     def fit(self, data: pd.DataFrame, target='class'):
         # precompute attribute types because it seems to be slow
         attr_cols = data.drop(target, axis=1)
-        self._categ_cols = set(attr_cols.select_dtypes(exclude=['number']))
-        self._num_cols = set(attr_cols.select_dtypes(include=['number']))
-
+        self._categ_attrs = set(attr_cols.select_dtypes(exclude=['number']))
+        self._num_attrs = set(attr_cols.select_dtypes(include=['number']))
+        
         self.root_ = self._build_tree(data.copy(), target)
         return self
 
@@ -92,20 +92,18 @@ class DecisionTree:
             attrs = self._get_attr_subset(attrs)
 
             # binarize numerical attributes
-            # num_attrs = data[attrs].select_dtypes(include=['number'])
-            num_cols = list(self._num_cols.intersection(attrs))
-            num_attrs = data[num_cols]
+            num_attrs = list(self._num_attrs.intersection(attrs))
             
-            if not num_attrs.empty:
+            if len(num_attrs) > 0:
                 data_categ, means = self._bin_numerical_attrs(data, num_attrs)
             else:
                 data_categ = data
                 
             # find the best splitting attribute
-            attr, val_subset, left_split, right_split, llabels, rlabels = \
+            attr, val_subset, llabels, rlabels = \
                 self._find_best_split(data_categ, attrs, vals, target)
 
-            if attr in num_cols:
+            if attr in num_attrs:
                 mean = means[attr]
                 node.condition = lambda x: x[attr] <= mean
             else:
@@ -117,7 +115,8 @@ class DecisionTree:
                 node.left.label = llabels[0]
             else:
                 node.left = Node()
-                nodes_to_split.append((node.left, left_split))
+                lsplit = data[node.condition(data)]
+                nodes_to_split.append((node.left, lsplit))
 
             if len(rlabels) == 1:
                 node.right = Node()
@@ -125,24 +124,26 @@ class DecisionTree:
                 node.right.label = rlabels[0]
             else:
                 node.right = Node()
-                nodes_to_split.append((node.right, right_split))
+                rsplit = data[~node.condition(data)]
+                nodes_to_split.append((node.right, rsplit))
             
         return root
 
     def _get_splittable_data(self, data, target):
-        categ_attrs = self._categ_cols.intersection(data.columns)
-        num_attrs = self._num_cols.intersection(data.columns)
+        categ_attrs = self._categ_attrs.intersection(data.columns)
+        num_attrs = self._num_attrs.intersection(data.columns)
         
-        # include only categ attributes with multiple values
+        # include only attributes with multiple values
         vals = {}
         for attr in categ_attrs:
             unique_vals = pd.unique(data[attr])
             if len(unique_vals) > 1:
                 vals[attr] = tuple(unique_vals)
 
-        # include all numerical attributes
         for attr in num_attrs:
-            vals[attr] = (True, False)
+            unique_vals = pd.unique(data[attr])
+            if len(unique_vals) > 1:
+                vals[attr] = (True, False)  # will be binarized
 
         useful_attrs = list(vals.keys())
         useful_cols = useful_attrs + [target]
@@ -154,14 +155,14 @@ class DecisionTree:
     def _find_best_split(self, data, attrs, vals, target):
         splits = [(attr,) + best_split(data, attr, vals[attr], target) 
                   for attr in attrs]
-        best_attr, val_subset, score, l, r, llabels, rlabels \
+        best_attr, val_subset, score, llabels, rlabels \
              = max(splits, key=lambda x: x[2])
-        return best_attr, val_subset, l, r, llabels, rlabels
+        return best_attr, val_subset, llabels, rlabels
 
     def _bin_numerical_attrs(sefl, data, num_attrs):
-        means = num_attrs.mean()
+        means = data[num_attrs].mean()
         data = data.copy()
-        data[num_attrs.columns] = num_attrs <= means
+        data[num_attrs] = data[num_attrs] <= means
         return data, means
 
 

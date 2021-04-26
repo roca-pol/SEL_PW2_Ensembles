@@ -70,7 +70,7 @@ def main(dataset, seed):
     df_test.fillna(modes, inplace=True)
 
     # induce rules
-    prism = RandomTree(n_attr=5) # DecisionTree() # 
+    prism = DecisionTree() # RandomTree(n_attr=5) # 
     t0 = time.time()
     prism.fit(df_train, target=target)
     t1 = time.time()
