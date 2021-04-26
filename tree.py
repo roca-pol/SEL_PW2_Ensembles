@@ -3,23 +3,24 @@ import numpy as np
 import pandas as pd
 import itertools
 
-# try to load progress bars module to show a simple display
-# with the current progress of the algorithm (OPTIONAL)
-try:
-    from tqdm import tqdm
-except ImportError:
-    tqdm = None
-
 
 class Node:
-    condition = None
     left = None
     right = None
     is_leaf = False
     label = None
+    attr = None
+    val = None
+    is_numeric = False
 
     def next(self, x):
         return self.left if self.condition(x) else self.right
+
+    def condition(self, x):
+        if self.is_numeric:
+            return x[self.attr] <= self.val
+        else:
+            return np.isin(x[self.attr], self.val)
 
 
 def binary_split(seq):
@@ -104,11 +105,14 @@ class DecisionTree:
                 self._find_best_split(data_categ, attrs, vals, target)
 
             if attr in num_attrs:
-                mean = means[attr]
-                node.condition = lambda x: x[attr] <= mean
+                node.is_numeric = True
+                node.attr = attr
+                node.val = means[attr]
             else:
-                node.condition = lambda x: np.isin(x[attr], val_subset)
+                node.attr = attr
+                node.val = val_subset
 
+            # left
             if len(llabels) == 1:
                 node.left = Node()
                 node.left.is_leaf = True
@@ -118,6 +122,7 @@ class DecisionTree:
                 lsplit = data[node.condition(data)]
                 nodes_to_split.append((node.left, lsplit))
 
+            # right
             if len(rlabels) == 1:
                 node.right = Node()
                 node.right.is_leaf = True
@@ -156,7 +161,7 @@ class DecisionTree:
         splits = [(attr,) + best_split(data, attr, vals[attr], target) 
                   for attr in attrs]
         best_attr, val_subset, score, llabels, rlabels \
-             = max(splits, key=lambda x: x[2])
+             = min(splits, key=lambda x: x[2])
         return best_attr, val_subset, llabels, rlabels
 
     def _bin_numerical_attrs(sefl, data, num_attrs):

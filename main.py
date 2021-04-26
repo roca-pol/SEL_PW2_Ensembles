@@ -70,15 +70,15 @@ def main(dataset, seed):
     df_test.fillna(modes, inplace=True)
 
     # induce rules
-    prism = DecisionTree() # RandomTree(n_attr=5) # 
+    clf = DecisionTree() # RandomTree(n_attr=5) # 
     t0 = time.time()
-    prism.fit(df_train, target=target)
+    clf.fit(df_train, target=target)
     t1 = time.time()
 
     print(f'Compute time: {round(t1 - t0, 2)}s')
 
     # apply rules
-    y_pred = prism.predict(df_test)
+    y_pred = clf.predict(df_test)
     y_true = df_test[target]
     print('Accuracy:', round(accuracy_score(y_true, y_pred), 4))
 
