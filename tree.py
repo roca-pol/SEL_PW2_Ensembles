@@ -1,7 +1,61 @@
-import warnings
 import numpy as np
+from numpy.random import RandomState
 import pandas as pd
 import itertools
+
+
+def binary_split_categ(seq):
+    v = len(seq)
+    all_partitions = (itertools.combinations(seq, m) for m in range(1, v))
+    all_partitions = itertools.chain.from_iterable(all_partitions)
+    
+    for m in range(2**(v-1)-1):
+        yield next(all_partitions)
+
+def binary_split_num(seq):
+    seq = np.sort(seq)
+
+    for i in range(len(seq)-1):
+        if seq[i] != seq[i+1]:
+            yield (seq[i] + seq[i+1]) / 2.
+
+
+def best_split(data: pd.DataFrame, attr, target, is_numeric=False):
+    attr_col = data[attr].values
+    targ_col = data[target].values
+    n = len(data)
+    
+    split_scores = []
+    # add worst score in case we cannot split
+    split_scores.append((None, np.inf, None, None))
+
+    if is_numeric:
+        for midpoint in binary_split_num(attr_col):
+            l = targ_col[attr_col <= midpoint]
+            r = targ_col[attr_col > midpoint]
+            lscore, llabels = gini_index(l)
+            rscore, rlabels = gini_index(r)
+            score = (len(l) / n) * lscore + (len(r) / n) * rscore
+            split_scores.append((midpoint, score, llabels, rlabels))
+
+    else:
+        values = np.unique(attr_col)
+        for subset in binary_split_categ(values):
+            mask = np.isin(attr_col, subset)
+            l = targ_col[mask]
+            r = targ_col[~mask]
+            lscore, llabels = gini_index(l)
+            rscore, rlabels = gini_index(r)
+            score = (len(l) / n) * lscore + (len(r) / n) * rscore
+            split_scores.append((subset, score, llabels, rlabels))
+
+    return min(split_scores, key=lambda x: x[1])
+
+
+def gini_index(data):
+    labels, counts = np.unique(data, return_counts=True)
+    pr = counts / len(data)
+    return 1. - np.square(pr).sum(), labels
 
 
 class Node:
@@ -23,46 +77,14 @@ class Node:
             return np.isin(x[self.attr], self.val)
 
 
-def binary_split(seq):
-    v = len(seq)
-    all_partitions = (itertools.combinations(seq, m) for m in range(1, v))
-    all_partitions = itertools.chain.from_iterable(all_partitions)
-    
-    for m in range(2**(v-1) - 1):
-        yield next(all_partitions)
-
-
-def best_split(data: pd.DataFrame, attr, values, target):
-    attr_col = data[attr]
-    n = len(data)
-    
-    split_scores = []
-    for subset in binary_split(values):
-        mask = attr_col.isin(subset)
-        l = data[mask]
-        r = data[~mask]
-        lscore, llabels = gini_index(l[target])
-        rscore, rlabels = gini_index(r[target])
-        score = (len(l) / n) * lscore + (len(r) / n) * rscore
-        split_scores.append((subset, score, llabels, rlabels))
-
-    return min(split_scores, key=lambda x: x[1])
-
-
-def gini_index(data: pd.DataFrame):
-    labels, counts = np.unique(data.values, return_counts=True)
-    pr = counts / len(data)
-    return 1 - np.square(pr).sum(), labels
-
-
 class DecisionTree:
-
     def fit(self, data: pd.DataFrame, target='class'):
         # precompute attribute types because it seems to be slow
         attr_cols = data.drop(target, axis=1)
-        self._categ_attrs = set(attr_cols.select_dtypes(exclude=['number']))
         self._num_attrs = set(attr_cols.select_dtypes(include=['number']))
-        
+
+        self.feature_importance_ = \
+            pd.Series(index=attr_cols.columns, dtype=int)
         self.root_ = self._build_tree(data.copy(), target)
         return self
 
@@ -82,35 +104,29 @@ class DecisionTree:
 
         while len(nodes_to_split) > 0:
             node, data = nodes_to_split.pop()
-
-            data, attrs, vals = self._get_splittable_data(data, target)
+            attrs = self._get_attr_subset(data.columns.drop(target))
 
             if len(attrs) == 0:
                 node.is_leaf = True
                 node.label = data[target].mode()[0]
                 continue
-
-            attrs = self._get_attr_subset(attrs)
-
-            # binarize numerical attributes
-            num_attrs = list(self._num_attrs.intersection(attrs))
-            
-            if len(num_attrs) > 0:
-                data_categ, means = self._bin_numerical_attrs(data, num_attrs)
-            else:
-                data_categ = data
-                
+                            
             # find the best splitting attribute
-            attr, val_subset, llabels, rlabels = \
-                self._find_best_split(data_categ, attrs, vals, target)
+            attr, val, llabels, rlabels = \
+                self._find_best_split(data, attrs, target)
 
-            if attr in num_attrs:
-                node.is_numeric = True
-                node.attr = attr
-                node.val = means[attr]
-            else:
-                node.attr = attr
-                node.val = val_subset
+            # in case all attrs had just 1 value (no split)
+            if attr is None:
+                # try again without considering any of these attrs
+                cols = data.columns.difference(attrs)
+                nodes_to_split.append((node, data[cols]))
+                continue
+
+            self.feature_importance_[attr] += 1
+
+            node.is_numeric = attr in self._num_attrs
+            node.attr = attr
+            node.val = val
 
             # left
             if len(llabels) == 1:
@@ -134,99 +150,37 @@ class DecisionTree:
             
         return root
 
-    def _get_splittable_data(self, data, target):
-        categ_attrs = self._categ_attrs.intersection(data.columns)
-        num_attrs = self._num_attrs.intersection(data.columns)
-        
-        # include only attributes with multiple values
-        vals = {}
-        for attr in categ_attrs:
-            unique_vals = pd.unique(data[attr])
-            if len(unique_vals) > 1:
-                vals[attr] = tuple(unique_vals)
-
-        for attr in num_attrs:
-            unique_vals = pd.unique(data[attr])
-            if len(unique_vals) > 1:
-                vals[attr] = (True, False)  # will be binarized
-
-        useful_attrs = list(vals.keys())
-        useful_cols = useful_attrs + [target]
-        return data[useful_cols], useful_attrs, vals
-
     def _get_attr_subset(self, attrs):
         return attrs
 
-    def _find_best_split(self, data, attrs, vals, target):
-        splits = [(attr,) + best_split(data, attr, vals[attr], target) 
-                  for attr in attrs]
-        best_attr, val_subset, score, llabels, rlabels \
-             = min(splits, key=lambda x: x[2])
-        return best_attr, val_subset, llabels, rlabels
+    def _find_best_split(self, data, attrs, target):
+        best_result = (None, None, None, None)
+        best_score = np.inf
 
-    def _bin_numerical_attrs(sefl, data, num_attrs):
-        means = data[num_attrs].mean()
-        data = data.copy()
-        data[num_attrs] = data[num_attrs] <= means
-        return data, means
+        for attr in attrs:
+            is_numeric = attr in self._num_attrs
+            val, score, llabels, rlabels = \
+                best_split(data, attr, target, is_numeric) 
 
+            if score < best_score:
+                best_result = attr, val, llabels, rlabels
+                best_score = score
+
+        return best_result
 
 
 class RandomTree(DecisionTree):
-    def __init__(self, n_attr):
+    def __init__(self, n_attr, random_state=None):
         super().__init__()
         self.n_attr = n_attr
+        if isinstance(random_state, RandomState):
+            self.random = random_state
+        else:
+            self.random = RandomState(seed=random_state)
 
     def _get_attr_subset(self, attrs):
         if len(attrs) <= self.n_attr:
             return attrs
         else:
-            return np.random.choice(attrs, self.n_attr, replace=False)
+            return self.random.choice(attrs, self.n_attr, replace=False)
         
-
-
-        # data, attrs, vals = self._get_splittable_data(data, target)
-
-        # if len(attrs) == 0:
-        #     node = Node()
-        #     node.is_leaf = True
-        #     node.label = data[target].mode()[0]
-        #     return node
-
-        # attrs = self._get_attr_subset(attrs)
-
-        # # binarize numerical attributes
-        # num_attrs = data[attrs].select_dtypes(include=['number'])
-        # if not num_attrs.empty:
-        #     data_categ, means = self._bin_numerical_attrs(data, num_attrs)
-        # else:
-        #     data_categ = data
-            
-        # # find the best splitting attribute
-        # attr, val_subset, llabels, rlabels = \
-        #     self._find_best_split(data_categ, attrs, vals, target)
-
-        # node = Node()
-        # if attr in num_attrs.columns:
-        #     mean = means[attr]
-        #     node.condition = lambda x: x[attr] <= mean
-        # else:
-        #     node.condition = lambda x: np.isin(x[attr], val_subset)
-
-        # if len(llabels) == 1:
-        #     node.left = Node()
-        #     node.left.is_leaf = True
-        #     node.left.label = llabels[0]
-        # else:
-        #     left_split = data[node.condition(data)]
-        #     node.left = self._build_tree(left_split, target)
-
-        # if len(rlabels) == 1:
-        #     node.right = Node()
-        #     node.right.is_leaf = True
-        #     node.right.label = rlabels[0]
-        # else:
-        #     right_split = data[~node.condition(data)]
-        #     node.right = self._build_tree(right_split, target)
-            
-        # return node
