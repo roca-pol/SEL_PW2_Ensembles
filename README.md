@@ -38,3 +38,9 @@ $ python3 main.py -d hepatitis -c decision -t 100
 $ python3 main.py -d cmc -c decision -t 2 -f 0
 ```
 This command splits the dataset into 2 (train and test sets), then induces the forest on the train set, and finally evaluates the accuracy on the test set.
+
+\
+\
+\
+Datasets credits:\
+DuBois, Christopher L. & Smyth, P. (2008). [UCI Network Data Repository](http://networkdata.ics.uci.edu). Irvine, CA: University of California, School of Information and Computer Sciences.

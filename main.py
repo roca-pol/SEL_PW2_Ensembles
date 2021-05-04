@@ -46,8 +46,8 @@ def load_nursery():
               ' (weak classifiers) for the forest (ensemble).')
 @click.option('-f', '--n-features', type=int, default=None, help='Size of the'
               ' subset of features that each tree or node will use. A value of 0 will'
-              ' make this number to be drawn from a uniform distribution for each tree'
-              ' (only works with decision forests). By default all features will be used.')
+              ' make this number be drawn from a uniform distribution for each tree'
+              ' (only works with decision forests). By default all features are used.')
 @click.option('-s', '--seed', type=int, default=None, help='Random seed used'
               ' for sampling, shuffling, or any op involving randomness.')
 @click.option('-o', '--out', type=str, default=None, help='File to save output to as JSON.')
@@ -65,13 +65,16 @@ def main(dataset, classifier_type, n_trees, n_features, seed, out):
         df = load_nursery()
         target = 'class'
 
-    random_state = RandomState(seed=seed)
+    if n_trees < 1:
+        raise ValueError('Option "--n-trees" must be higher than 0.')
 
     if n_features is None:
         n_features = len(df.columns) - 1
     elif n_features < 0:
         raise ValueError('Option "--n-features" must be higher than 1'
                          ' (or 0 only if it is a decision forest).')
+
+    random_state = RandomState(seed=seed)
 
     if classifier_type == 'decision':
         n_features = 'unif' if n_features == 0 else n_features
