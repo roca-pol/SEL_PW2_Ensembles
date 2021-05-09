@@ -33,8 +33,9 @@ class Forest:
 class RandomForest(Forest):
     def fit(self, data: pd.DataFrame, target='class'):
         trees = []
-        f_imp = pd.Series(index=data.columns.drop(target),
-                          dtype=int)
+        n_nodes = 0
+        f_imp = pd.Series(index=data.columns.drop(target), data=0.)
+
         for _ in tqdm(range(self.n_trees), desc='Training'):
             # generate bootstrapped dataset (indices)
             bootstrap_idx = self.random.choice(len(data), len(data), replace=True)
@@ -43,21 +44,24 @@ class RandomForest(Forest):
             tree = RandomTree(self.n_feat, random_state=self.random)
             tree.fit(data.iloc[bootstrap_idx], target)
             trees.append(tree)
+            n_nodes += tree.n_nodes_
             
             # accumulate feature importances
-            for attr, count in tree.feature_importance_.iteritems():
-                f_imp[attr] += count
+            for attr, freq in tree.feature_importance_.iteritems():
+                f_imp[attr] += freq * tree.n_nodes_
 
         self.trees_ = trees
-        self.feature_importance_ = f_imp
+        self.n_nodes_ = n_nodes
+        self.feature_importance_ = f_imp / n_nodes
         return self
 
 
 class DecisionForest(Forest):
     def fit(self, data: pd.DataFrame, target='class'):
         trees = []
+        n_nodes = 0
         attrs = data.columns.drop(target)
-        f_imp = pd.Series(index=attrs, dtype=int)
+        f_imp = pd.Series(index=attrs, data=0.)
         
         # prepare number of features for each tree
         if self.n_feat == 'unif':
@@ -74,12 +78,14 @@ class DecisionForest(Forest):
             tree = DecisionTree()
             tree.fit(data[feat_subset], target)
             trees.append(tree)
+            n_nodes += tree.n_nodes_
 
             # accumulate feature importances
-            for attr, count in tree.feature_importance_.iteritems():
-                f_imp[attr] += count
+            for attr, freq in tree.feature_importance_.iteritems():
+                f_imp[attr] += freq * tree.n_nodes_
 
         self.trees_ = trees
-        self.feature_importance_ = f_imp
+        self.n_nodes_ = n_nodes
+        self.feature_importance_ = f_imp / n_nodes
         return self
 

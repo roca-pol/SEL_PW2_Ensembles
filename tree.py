@@ -83,9 +83,11 @@ class DecisionTree:
         attr_cols = data.drop(target, axis=1)
         self._num_attrs = set(attr_cols.select_dtypes(include=['number']))
 
-        self.feature_importance_ = \
-            pd.Series(index=attr_cols.columns, dtype=int)
+        self.feature_importance_ = pd.Series(index=attr_cols.columns, 
+                                             data=0.)
         self.root_ = self._build_tree(data.copy(), target)
+        self.n_nodes_ = int(self.feature_importance_.sum())
+        self.feature_importance_ /= self.n_nodes_
         return self
 
     def predict(self, data: pd.DataFrame):

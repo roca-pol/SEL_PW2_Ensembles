@@ -108,9 +108,8 @@ def main(dataset, classifier_type, n_trees, n_features, seed, out):
     train_time = time.time() - t0
     print(f'Training time: {round(train_time, 2)}s')
     print('\nFeature importance:')
-    feature_importance = clf.feature_importance_.copy()
-    feature_importance['__total__'] = feature_importance.sum()
-    print(feature_importance.sort_values().to_string(), '\n')
+    print(clf.feature_importance_.sort_values().round(4).to_string())
+    print('Nodes:', clf.n_nodes_, '\n')
 
     # classify using forest
     t0 = time.time()
@@ -122,6 +121,7 @@ def main(dataset, classifier_type, n_trees, n_features, seed, out):
     accuracy = accuracy_score(y_true, y_pred)
     print('\nAccuracy:', round(accuracy, 4))
 
+    # append result to output JSON file
     if out is not None:
         result = {
             'dataset': dataset,
@@ -130,8 +130,9 @@ def main(dataset, classifier_type, n_trees, n_features, seed, out):
             'n_features':n_features,
             'train_time': train_time,
             'infer_time': infer_time,
+            'n_nodes': clf.n_nodes_,
             'accuracy': accuracy,
-            'feature_importance': feature_importance.to_dict()
+            'feature_importance': clf.feature_importance_.to_dict()
         }
         with open(out, 'a') as f:
             f.write(json.dumps(result, indent=4) + ',\n')
