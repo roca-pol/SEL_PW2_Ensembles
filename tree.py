@@ -117,11 +117,12 @@ class DecisionTree:
             attr, val, llabels, rlabels = \
                 self._find_best_split(data, attrs, target)
 
-            # in case all attrs had just 1 value (no split)
+            # in the extreme case where all attrs
+            # had just 1 value (no possible split)
             if attr is None:
                 # try again without considering any of these attrs
-                cols = data.columns.difference(attrs)
-                nodes_to_split.append((node, data[cols]))
+                others = data.columns.difference(attrs)
+                nodes_to_split.append((node, data[others]))
                 continue
 
             self.feature_importance_[attr] += 1
@@ -131,22 +132,20 @@ class DecisionTree:
             node.val = val
 
             # left
+            node.left = Node()
             if len(llabels) == 1:
-                node.left = Node()
                 node.left.is_leaf = True
                 node.left.label = llabels[0]
             else:
-                node.left = Node()
                 lsplit = data[node.condition(data)]
                 nodes_to_split.append((node.left, lsplit))
 
             # right
+            node.right = Node()
             if len(rlabels) == 1:
-                node.right = Node()
                 node.right.is_leaf = True
                 node.right.label = rlabels[0]
             else:
-                node.right = Node()
                 rsplit = data[~node.condition(data)]
                 nodes_to_split.append((node.right, rsplit))
             
