@@ -1,17 +1,14 @@
 import os
+import json
 import time
+import click
+from click import Choice
 import numpy as np
 from numpy.random import RandomState
 import pandas as pd
-
-from tree import DecisionTree, RandomTree
-from ensemble import DecisionForest, RandomForest
-
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
-import click
-from click import Choice
-import json
+from ensemble import DecisionForest, RandomForest
 
 
 def load_hepatitis():
